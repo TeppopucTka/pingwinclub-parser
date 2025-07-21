@@ -85,7 +85,7 @@ def run_parser():
 
     log(f"📅 Последняя дата турнира: {latest_date_str}")
 
-    # Генерация HTML с фильтрами и кнопками
+    # Генерация HTML (оригинальный стиль с фильтрами и кнопками)
     used_letters = set()
     for _, row in df.iterrows():
         name = row['Имя']
@@ -107,17 +107,42 @@ def run_parser():
     <html lang="ru">
     <head>
         <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Рейтинг PingWinClub</title>
         <style>
-            body {{ font-family: Arial; margin: 20px; background: #f9f9f9; color: #333; }}
-            h1 {{ text-align: center; }}
-            table {{ border-collapse: collapse; width: 100%; background: white; }}
-            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-            th {{ background-color: #3498db; color: white; }}
-            tr:nth-child(even) {{ background-color: #f2f2f2; }}
-            tr:hover {{ background-color: #e0e0e0; }}
-            .filters {{ margin-bottom: 20px; }}
-            .filter-row {{ display: flex; flex-wrap: wrap; gap: 5px; }}
+            body {{
+                font-family: Arial, sans-serif;
+                margin: 20px;
+                background-color: #f9f9f9;
+                color: #333;
+                line-height: 1.5;
+            }}
+            h1 {{
+                text-align: center;
+                color: #2c3e50;
+                margin-bottom: 10px;
+                font-size: 1.5em;
+            }}
+            h3 {{
+                text-align: center;
+                color: #777;
+                margin-bottom: 20px;
+                font-size: 1em;
+            }}
+            h4 {{
+                margin-top: 20px;
+                margin-bottom: 10px;
+                font-size: 1em;
+            }}
+            .filters {{
+                margin-bottom: 20px;
+            }}
+            .filter-row {{
+                display: flex;
+                flex-wrap: wrap;
+                gap: 5px;
+                margin-bottom: 10px;
+            }}
             .filter-btn {{
                 padding: 6px 10px;
                 background: #2ecc71;
@@ -129,19 +154,61 @@ def run_parser():
                 text-align: center;
                 min-width: 40px;
             }}
-            .filter-btn:hover {{ background: #27ae60; }}
+            .filter-btn:hover {{
+                background: #27ae60;
+            }}
+            .alffilter {{
+                padding: 6px 10px;
+                background: #3498db;
+                color: white;
+                cursor: pointer;
+                border-radius: 4px;
+                font-size: 0.9em;
+                flex: 1 1 auto;
+                text-align: center;
+                min-width: 30px;
+            }}
+            .alffilter:hover {{
+                background: #2980b9;
+            }}
+            table {{
+                border-collapse: collapse;
+                width: 100%;
+                background-color: white;
+                box-shadow: 0 0 10px rgba(0,0,0,0.1);
+                font-size: 0.9em;
+            }}
+            th, td {{
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+            }}
+            th {{
+                background-color: #3498db;
+                color: white;
+            }}
+            .centered {{
+                text-align: center;
+            }}
+            tr:nth-child(even) {{
+                background-color: #f2f2f2;
+            }}
+            tr:hover {{
+                background-color: #e0e0e0;
+            }}
         </style>
     </head>
     <body>
         <h1>Рейтинг PingWinClub</h1>
+        <h3>Клубный рейтинг и игровая статистика</h3>
         <div class="filters">
             <h4>Алфавитный фильтр:</h4>
             <div class="filter-row">
-                <span class="filter-btn" data-letter="все">ВСЕ</span>
-                {"".join(f'<span class="filter-btn" data-letter="{l}">{l}</span>' for l in first_row)}
+                <span class="alffilter" data-letter="все">ВСЕ</span>
+                {"".join(f'<span class="alffilter" data-letter="{l}">{l}</span>' for l in first_row)}
             </div>
             <div class="filter-row">
-                {"".join(f'<span class="filter-btn" data-letter="{l}">{l}</span>' for l in second_row)}
+                {"".join(f'<span class="alffilter" data-letter="{l}">{l}</span>' for l in second_row)}
             </div>
             <h4 style="margin-top: 20px;">Фильтр по последнему турниру:</h4>
             <div class="filter-row">
@@ -151,7 +218,12 @@ def run_parser():
         <table id="myTable" border="1">
             <thead>
                 <tr>
-                    <th>№</th><th>Имя</th><th>Рейтинг</th><th>Δ</th><th>Последнее участие</th><th>Город</th>
+                    <th class="centered">№</th>
+                    <th>Имя</th>
+                    <th class="centered">Рейтинг</th>
+                    <th class="centered">Δ</th>
+                    <th>Последнее участие</th>
+                    <th>Город</th>
                 </tr>
             </thead>
             <tbody>
@@ -160,16 +232,16 @@ def run_parser():
     for _, row in df.iterrows():
         rating = row['Рейтинг']
         delta = row['Δ Рейтинг']
-        rating_style = 'style="color: darkgreen;"' if '+' in delta and delta not in ["+0", "+-0"] else ''
+        rating_style = 'style="color: darkgreen; font-weight: bold;"' if '+' in delta and delta not in ["+0", "+-0"] else ''
         if '-' in delta and delta not in ["-0", "+-0"]:
-            rating_style = 'style="color: red;"'
+            rating_style = 'style="color: red; font-weight: bold;"'
         html_content += f"""
         <tr>
-            <td>{row['Место']}</td>
+            <td class="centered">{row['Место']}</td>
             <td>{row['Имя']}</td>
-            <td {rating_style}>{rating}</td>
-            <td>{delta}</td>
-            <td>{row['Последнее участие']}</td>
+            <td class="centered" {rating_style}>{rating}</td>
+            <td class="centered">{delta}</td>
+            <td class="last-activity">{row['Последнее участие']}</td>
             <td>{row['Город']}</td>
         </tr>
         """
@@ -179,28 +251,38 @@ def run_parser():
         </table>
         <script>
             document.addEventListener("DOMContentLoaded", function () {
-                const filters = document.querySelectorAll(".filter-btn");
+                const alffilters = document.querySelectorAll(".alffilter");
+                const datefilters = document.querySelectorAll(".filter-btn");
                 const rows = document.querySelectorAll("#myTable tbody tr");
-
-                filters.forEach(filter => {
+                // Фильтр по фамилии
+                alffilters.forEach(filter => {
                     filter.addEventListener("click", function () {
                         const letter = this.getAttribute("data-letter");
-                        const date = this.getAttribute("data-date");
-
                         rows.forEach(row => {
-                            const name = row.querySelector("td:nth-child(2)").textContent.trim();
-                            const surname = name.split(" ")[0];
+                            const nameCell = row.querySelector("td:nth-child(2)");
+                            if (!nameCell) return;
+                            const surname = nameCell.textContent.trim().split(" ")[0];
                             const firstLetter = surname.charAt(0).toUpperCase();
-                            const dateCell = row.querySelector("td:nth-child(5)").textContent.trim();
-
-                            if (letter === "все") {
+                            if (letter === "все" || firstLetter === letter) {
                                 row.style.display = "";
-                            } else if (letter && firstLetter !== letter) {
-                                row.style.display = "none";
-                            } else if (date && dateCell !== date) {
-                                row.style.display = "none";
                             } else {
+                                row.style.display = "none";
+                            }
+                        });
+                    });
+                });
+                // Фильтр по дате
+                datefilters.forEach(filter => {
+                    filter.addEventListener("click", function () {
+                        const targetDate = this.getAttribute("data-date");
+                        rows.forEach(row => {
+                            const dateCell = row.querySelector("td.last-activity");
+                            if (!dateCell) return;
+                            const rowDate = dateCell.textContent.trim();
+                            if (targetDate === "all" || rowDate === targetDate) {
                                 row.style.display = "";
+                            } else {
+                                row.style.display = "none";
                             }
                         });
                     });
