@@ -16,10 +16,10 @@ app = Flask(__name__)
 
 url = "http://pingwinclub.ru/"
 
-ftp_host = "62.109.17.194"
-ftp_user = "u715944992875427"
-ftp_pass = "S8ptfMnpYR"
-ftp_path = "/httpdocs/"  # Путь на сервере, где будет лежать файл
+ftp_host = os.getenv("FTP_HOST")
+ftp_user = os.getenv("FTP_USER")
+ftp_pass = os.getenv("FTP_PASS")
+ftp_path = os.getenv("FTP_PATH")
 
 # ========================
 # Парсинг сайта
