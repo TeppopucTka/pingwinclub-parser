@@ -216,7 +216,7 @@ def run_parser():
         </style>
     </head>
     <body>
-        <h1><a href="https://пингвинклуб.рф/reitingi.html" target="_blank">Рейтинг PingWinClub</a></h1>
+        <h1><a href="https://пингвинклуб.рф/reitingi.html" target="_parent">Рейтинг PingWinClub</a></h1>
         <!-- Изменённый заголовок -->
         <h3>Клубный рейтинг за прошедшие 6 месяцев</h3>
         <div class="filters">
