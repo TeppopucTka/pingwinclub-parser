@@ -6,7 +6,7 @@ import os
 import re
 import ftplib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta # Импортируем datetime и timedelta
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -19,13 +19,11 @@ ftp_host = os.getenv("FTP_HOST")
 ftp_user = os.getenv("FTP_USER")
 ftp_pass = os.getenv("FTP_PASS")
 ftp_path = os.getenv("FTP_PATH")
-
 # ========================
 # Логирование
 # ========================
 def log(message):
     print(message)
-
 # ========================
 # Парсинг сайта
 # ========================
@@ -54,12 +52,14 @@ def run_parser():
         stats_div = cols[1].find("div", class_="podrstat")
         if stats_div:
             stats_text = stats_div.get_text(strip=True)
+            # Ищем дату в формате dd.mm.yyyy или dd.mm.yy
             match = re.search(r"Дата последнего участия - ([\d\.]+)", stats_text)
             if match:
                 last_participation = match.group(1)
         if last_participation == "-":
             if len(cols) > 5:
                 possible_date = cols[5].get_text(strip=True)
+                # Проверяем более общий формат даты dd.mm.yyyy
                 if re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", possible_date):
                     last_participation = possible_date
             if len(cols) > 6 and last_participation == "-":
@@ -71,37 +71,40 @@ def run_parser():
 
     df = pd.DataFrame(data, columns=["Место", "Имя", "Рейтинг", "Δ Рейтинг", "Последнее участие", "Город"])
 
-    # --- Изменение 1: Фильтрация по дате ---
-    # Преобразуем даты в формат datetime
-    df['Последнее участие'] = pd.to_datetime(df['Последнее участие'], format='%d.%m.%Y', errors='coerce')
+    # --- НОВАЯ ЛОГИКА: Фильтрация по дате ---
+    # Преобразуем столбец 'Последнее участие' в datetime, игнорируя ошибки
+    # Предполагаем, что формат даты dd.mm.yyyy
+    df['Последнее участие'] = pd.to_datetime(df['Последнее участие'], format='%d.%m.%Y', errors='coerce', dayfirst=True)
 
-    # Определяем дату 6 месяцев назад
-    six_months_ago = datetime.now() - timedelta(days=6*30) # Приблизительно 6 месяцев
+    # Получаем текущую дату
+    today = datetime.today()
+    # Вычисляем дату 6 месяцев назад
+    six_months_ago = today - timedelta(days=6*30) # Приблизительно 6 месяцев
 
-    # Фильтруем DataFrame
-    df_filtered = df[df['Последнее участие'] >= six_months_ago]
+    # Фильтруем DataFrame: оставляем строки, где дата >= six_months_ago и дата известна (не NaT)
+    df_filtered = df[df['Последнее участие'].notna() & (df['Последнее участие'] >= six_months_ago)]
 
-    # Сбрасываем индекс и пересчитываем места
+    # Пересчитываем места
     df_filtered = df_filtered.reset_index(drop=True)
     df_filtered['Место'] = df_filtered.index + 1
 
     # Преобразуем дату обратно в строку для отображения
     df_filtered['Последнее участие'] = df_filtered['Последнее участие'].dt.strftime('%d.%m.%Y')
-    # --- Конец изменения 1 ---
+    # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
 
-    # Определяем последнюю дату турнира среди отфильтрованных данных
-    latest_date_series = df_filtered[df_filtered['Последнее участие'] != "-"]['Последнее участие']
-    if not latest_date_series.empty:
-        latest_date = pd.to_datetime(latest_date_series, format='%d.%m.%Y', errors='coerce').max()
+    # Используем отфильтрованный DataFrame для дальнейших действий
+    df = df_filtered
+
+    if not df.empty:
+        latest_date = pd.to_datetime(df['Последнее участие'], format='%d.%m.%Y', errors='coerce').max()
         latest_date_str = latest_date.strftime("%d.%m.%Y") if not pd.isna(latest_date) else "-"
     else:
-        latest_date_str = "-"
-
+        latest_date_str = "-" # Или другая строка, если нет данных
     log(f"📅 Последняя дата турнира (после фильтрации): {latest_date_str}")
 
     # Генерация HTML (оригинальный стиль с фильтрами и кнопками)
     used_letters = set()
-    for _, row in df_filtered.iterrows(): # Используем отфильтрованный DataFrame
+    for _, row in df.iterrows():
         name = row['Имя']
         if name:
             surname = name.split(" ")[0]
@@ -115,8 +118,7 @@ def run_parser():
     first_row = filtered_letters[:half]
     second_row = filtered_letters[half:]
 
-    # --- Изменение 2: Обновлённый заголовок ---
-    # --- Изменение 3: Заголовок как гиперссылка ---
+    # --- ИЗМЕНЕНИЕ ЗАГОЛОВКА ---
     html_content = f"""
     <!DOCTYPE html>
     <html lang="ru">
@@ -137,33 +139,6 @@ def run_parser():
                 color: #2c3e50;
                 margin-bottom: 10px;
                 font-size: 1.5em;
-            }}
-            /* --- Изменение 3: Стиль для ссылки в заголовке --- */
-            h1 a {{
-                color: inherit; /* Наследует цвет от родителя (h1) */
-                text-decoration: none; /* Убирает подчеркивание */
-            }}
-            h1 a:hover {{
-                text-decoration: underline; /* Подчеркивание при наведении */
-            }}
-            /* --- Изменение 4: Стиль кнопки "ВСЕ" --- */
-            .alffilter {{
-                padding: 6px 10px;
-                /* background: #3498db; */ /* Старый синий цвет */
-                background: #2ecc71; /* Новый зеленый цвет */
-                color: white;
-                cursor: pointer;
-                border-radius: 4px;
-                font-size: 0.9em;
-                flex: 1 1 auto;
-                text-align: center;
-                min-width: 40px; /* Увеличил min-width для соответствия filter-btn */
-                display: inline-block; /* Для корректного отображения как кнопки */
-                 margin: 2px; /* Небольшой отступ */
-            }}
-            .alffilter:hover {{
-                /* background: #2980b9; */ /* Старый синий цвет при наведении */
-                background: #27ae60; /* Новый зеленый цвет при наведении */
             }}
             h3 {{
                 text-align: center;
@@ -195,14 +170,24 @@ def run_parser():
                 flex: 1 1 auto;
                 text-align: center;
                 min-width: 40px;
-                 display: inline-block; /* Для корректного отображения как кнопки */
-                 margin: 2px; /* Небольшой отступ */
             }}
             .filter-btn:hover {{
                 background: #27ae60;
             }}
-            /* .alffilter {{ ... }} */ /* Стиль перенесен выше */
-            /* .alffilter:hover {{ ... }} */ /* Стиль перенесен выше */
+            .alffilter {{
+                padding: 6px 10px;
+                background: #3498db;
+                color: white;
+                cursor: pointer;
+                border-radius: 4px;
+                font-size: 0.9em;
+                flex: 1 1 auto;
+                text-align: center;
+                min-width: 30px;
+            }}
+            .alffilter:hover {{
+                background: #2980b9;
+            }}
             table {{
                 border-collapse: collapse;
                 width: 100%;
@@ -231,15 +216,13 @@ def run_parser():
         </style>
     </head>
     <body>
-        <!-- --- Изменение 3: Заголовок как гиперссылка --->
         <h1><a href="https://пингвинклуб.рф/reitingi.html" target="_blank">Рейтинг PingWinClub</a></h1>
-        <!-- --- Изменение 2: Обновлённый заголовок --->
+        <!-- Изменённый заголовок -->
         <h3>Клубный рейтинг за прошедшие 6 месяцев</h3>
         <div class="filters">
             <h4>Алфавитный фильтр:</h4>
             <div class="filter-row">
-                <!-- --- Изменение 4: Кнопка "ВСЕ" теперь зеленая --->
-                <span class="alffilter" data-letter="все">ВСЕ</span>
+                <span class="filter-btn" data-letter="все">ВСЕ</span>
                 {"".join(f'<span class="alffilter" data-letter="{l}">{l}</span>' for l in first_row)}
             </div>
             <div class="filter-row">
@@ -263,8 +246,7 @@ def run_parser():
             </thead>
             <tbody>
     """
-    # Используем отфильтрованный DataFrame для генерации строк таблицы
-    for _, row in df_filtered.iterrows():
+    for _, row in df.iterrows(): # Используем отфильтрованный df
         rating = row['Рейтинг']
         delta = row['Δ Рейтинг']
         rating_style = 'style="color: darkgreen; font-weight: bold;"' if '+' in delta and delta not in ["+0", "+-0"] else ''
@@ -326,7 +308,6 @@ def run_parser():
     </body>
     </html>
     """
-
     local_html_path = "rating_full.html"
     try:
         with open(local_html_path, "w", encoding="utf-8") as f:
@@ -349,7 +330,6 @@ def run_parser():
         log(f"✅ Файл загружен на FTP")
     except Exception as e:
         log(f"❌ Ошибка FTP: {e}")
-
 # ========================
 # Flask маршруты
 # ========================
@@ -362,7 +342,6 @@ def run():
     log("🔔 Запрос на запуск парсинга")
     run_parser()
     return "✅ Парсинг выполнен"
-
 # ========================
 # Точка входа
 # ========================
