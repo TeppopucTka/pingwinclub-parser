@@ -78,8 +78,8 @@ def run_parser():
 
     # Получаем текущую дату
     today = datetime.today()
-    # Вычисляем дату 6 месяцев назад
-    six_months_ago = today - timedelta(days=6*30) # Приблизительно 6 месяцев
+    # Вычисляем дату 3 месяца назад
+    six_months_ago = today - timedelta(days=3*30) # Приблизительно 3 месяца
 
     # Фильтруем DataFrame: оставляем строки, где дата >= six_months_ago и дата известна (не NaT)
     df_filtered = df[df['Последнее участие'].notna() & (df['Последнее участие'] >= six_months_ago)]
@@ -218,7 +218,7 @@ def run_parser():
     <body>
         <h1><a href="https://пингвинклуб.рф/reitingi.html" target="_parent">Рейтинг PingWinClub</a></h1>
         <!-- Изменённый заголовок -->
-        <h3>Клубный рейтинг за прошедшие 6 месяцев</h3>
+        <h3>Клубный рейтинг за прошедшие 3 месяца</h3>
         <div class="filters">
             <h4>Алфавитный фильтр:</h4>
             <div class="filter-row">
