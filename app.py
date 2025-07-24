@@ -6,6 +6,7 @@ import os
 import re
 import ftplib
 import logging
+from datetime import datetime, timedelta # Импортируем datetime и timedelta
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -18,13 +19,11 @@ ftp_host = os.getenv("FTP_HOST")
 ftp_user = os.getenv("FTP_USER")
 ftp_pass = os.getenv("FTP_PASS")
 ftp_path = os.getenv("FTP_PATH")
-
 # ========================
 # Логирование
 # ========================
 def log(message):
     print(message)
-
 # ========================
 # Парсинг сайта
 # ========================
@@ -41,49 +40,67 @@ def run_parser():
     soup = BeautifulSoup(html, "html.parser")
     rows = soup.select("tr.stat")
     data = []
-
     for row in rows:
         cols = row.find_all("td")
         if len(cols) < 5:
             continue
-
         name_tag = cols[2].find(class_="statname")
         name = name_tag.get_text(strip=True) if name_tag else cols[2].get_text(strip=True)
         rating = cols[3].get_text(strip=True)
         delta = cols[4].get_text(strip=True)
         last_participation = "-"
-
         stats_div = cols[1].find("div", class_="podrstat")
         if stats_div:
             stats_text = stats_div.get_text(strip=True)
+            # Ищем дату в формате dd.mm.yyyy или dd.mm.yy
             match = re.search(r"Дата последнего участия - ([\d\.]+)", stats_text)
             if match:
                 last_participation = match.group(1)
-
         if last_participation == "-":
             if len(cols) > 5:
                 possible_date = cols[5].get_text(strip=True)
+                # Проверяем более общий формат даты dd.mm.yyyy
                 if re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", possible_date):
                     last_participation = possible_date
             if len(cols) > 6 and last_participation == "-":
                 possible_date = cols[6].get_text(strip=True)
                 if re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", possible_date):
                     last_participation = possible_date
-
         city = cols[7].get_text(strip=True) if len(cols) > 7 else "-"
         data.append([len(data) + 1, name, rating, delta, last_participation, city])
 
     df = pd.DataFrame(data, columns=["Место", "Имя", "Рейтинг", "Δ Рейтинг", "Последнее участие", "Город"])
 
-    df['Последнее участие'] = df['Последнее участие'].str.replace(r'\s\d{2}:\d{2}:\d{4}', '', regex=True)
-    latest_date = df[df['Последнее участие'] != "-"]['Последнее участие']
-    if not latest_date.empty:
-        latest_date = pd.to_datetime(latest_date, format='%d.%m.%Y', errors='coerce').max()
+    # --- НОВАЯ ЛОГИКА: Фильтрация по дате ---
+    # Преобразуем столбец 'Последнее участие' в datetime, игнорируя ошибки
+    # Предполагаем, что формат даты dd.mm.yyyy
+    df['Последнее участие'] = pd.to_datetime(df['Последнее участие'], format='%d.%m.%Y', errors='coerce', dayfirst=True)
+
+    # Получаем текущую дату
+    today = datetime.today()
+    # Вычисляем дату 6 месяцев назад
+    six_months_ago = today - timedelta(days=6*30) # Приблизительно 6 месяцев
+
+    # Фильтруем DataFrame: оставляем строки, где дата >= six_months_ago и дата известна (не NaT)
+    df_filtered = df[df['Последнее участие'].notna() & (df['Последнее участие'] >= six_months_ago)]
+
+    # Пересчитываем места
+    df_filtered = df_filtered.reset_index(drop=True)
+    df_filtered['Место'] = df_filtered.index + 1
+
+    # Преобразуем дату обратно в строку для отображения
+    df_filtered['Последнее участие'] = df_filtered['Последнее участие'].dt.strftime('%d.%m.%Y')
+    # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+
+    # Используем отфильтрованный DataFrame для дальнейших действий
+    df = df_filtered
+
+    if not df.empty:
+        latest_date = pd.to_datetime(df['Последнее участие'], format='%d.%m.%Y', errors='coerce').max()
         latest_date_str = latest_date.strftime("%d.%m.%Y") if not pd.isna(latest_date) else "-"
     else:
-        latest_date_str = "-"
-
-    log(f"📅 Последняя дата турнира: {latest_date_str}")
+        latest_date_str = "-" # Или другая строка, если нет данных
+    log(f"📅 Последняя дата турнира (после фильтрации): {latest_date_str}")
 
     # Генерация HTML (оригинальный стиль с фильтрами и кнопками)
     used_letters = set()
@@ -95,13 +112,13 @@ def run_parser():
                 first_letter = surname[0].upper()
                 if first_letter.isalpha():
                     used_letters.add(first_letter)
-
     letters = [chr(c) for c in range(ord("А"), ord("Я") + 1)]
     filtered_letters = [l for l in letters if l in used_letters]
     half = len(filtered_letters) // 2
     first_row = filtered_letters[:half]
     second_row = filtered_letters[half:]
 
+    # --- ИЗМЕНЕНИЕ ЗАГОЛОВКА ---
     html_content = f"""
     <!DOCTYPE html>
     <html lang="ru">
@@ -200,7 +217,8 @@ def run_parser():
     </head>
     <body>
         <h1>Рейтинг PingWinClub</h1>
-        <h3>Клубный рейтинг и игровая статистика</h3>
+        <!-- Изменённый заголовок -->
+        <h3>Клубный рейтинг за 6 месяцев</h3>
         <div class="filters">
             <h4>Алфавитный фильтр:</h4>
             <div class="filter-row">
@@ -228,8 +246,7 @@ def run_parser():
             </thead>
             <tbody>
     """
-
-    for _, row in df.iterrows():
+    for _, row in df.iterrows(): # Используем отфильтрованный df
         rating = row['Рейтинг']
         delta = row['Δ Рейтинг']
         rating_style = 'style="color: darkgreen; font-weight: bold;"' if '+' in delta and delta not in ["+0", "+-0"] else ''
@@ -245,7 +262,6 @@ def run_parser():
             <td>{row['Город']}</td>
         </tr>
         """
-
     html_content += """
             </tbody>
         </table>
@@ -292,7 +308,6 @@ def run_parser():
     </body>
     </html>
     """
-
     local_html_path = "rating_full.html"
     try:
         with open(local_html_path, "w", encoding="utf-8") as f:
@@ -315,7 +330,6 @@ def run_parser():
         log(f"✅ Файл загружен на FTP")
     except Exception as e:
         log(f"❌ Ошибка FTP: {e}")
-
 # ========================
 # Flask маршруты
 # ========================
@@ -328,7 +342,6 @@ def run():
     log("🔔 Запрос на запуск парсинга")
     run_parser()
     return "✅ Парсинг выполнен"
-
 # ========================
 # Точка входа
 # ========================
