@@ -222,7 +222,7 @@ def run_parser():
         <div class="filters">
             <h4>Алфавитный фильтр:</h4>
             <div class="filter-row">
-                <span class="alffilter" data-letter="все">ВСЕ</span>
+                <span class="filter-btn" data-letter="все">ВСЕ</span>
                 {"".join(f'<span class="alffilter" data-letter="{l}">{l}</span>' for l in first_row)}
             </div>
             <div class="filter-row">
