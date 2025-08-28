@@ -6,7 +6,10 @@ import os
 import re
 import ftplib
 import logging
-from datetime import datetime, timedelta # Импортируем datetime и timedelta
+from datetime import datetime, timedelta
+import tempfile
+import atexit
+import shutil
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -19,18 +22,35 @@ ftp_host = os.getenv("FTP_HOST")
 ftp_user = os.getenv("FTP_USER")
 ftp_pass = os.getenv("FTP_PASS")
 ftp_path = os.getenv("FTP_PATH")
+
+# Создаём временную папку для работы
+temp_dir = tempfile.mkdtemp(prefix="parser_")
+html_file_path = os.path.join(temp_dir, "rating_full.html")
+
+# Удаляем временную папку при завершении
+def cleanup():
+    try:
+        shutil.rmtree(temp_dir)
+        print("🗑️ Временные файлы удалены.")
+    except Exception as e:
+        print(f"⚠️ Ошибка при удалении временных файлов: {e}")
+
+atexit.register(cleanup)
+
 # ========================
 # Логирование
 # ========================
 def log(message):
-    print(message)
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+
 # ========================
 # Парсинг сайта
 # ========================
 def run_parser():
     log("🚀 Начинаем парсинг сайта")
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
         html = response.text
         log("✅ HTML успешно загружен")
     except Exception as e:
@@ -52,73 +72,57 @@ def run_parser():
         stats_div = cols[1].find("div", class_="podrstat")
         if stats_div:
             stats_text = stats_div.get_text(strip=True)
-            # Ищем дату в формате dd.mm.yyyy или dd.mm.yy
             match = re.search(r"Дата последнего участия - ([\d\.]+)", stats_text)
             if match:
                 last_participation = match.group(1)
+        # Проверка в других столбцах, если не нашли
         if last_participation == "-":
-            if len(cols) > 5:
-                possible_date = cols[5].get_text(strip=True)
-                # Проверяем более общий формат даты dd.mm.yyyy
-                if re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", possible_date):
-                    last_participation = possible_date
-            if len(cols) > 6 and last_participation == "-":
-                possible_date = cols[6].get_text(strip=True)
-                if re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", possible_date):
-                    last_participation = possible_date
+            for i in [5, 6]:
+                if len(cols) > i:
+                    possible_date = cols[i].get_text(strip=True)
+                    if re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", possible_date):
+                        last_participation = possible_date
+                        break
         city = cols[7].get_text(strip=True) if len(cols) > 7 else "-"
         data.append([len(data) + 1, name, rating, delta, last_participation, city])
 
     df = pd.DataFrame(data, columns=["Место", "Имя", "Рейтинг", "Δ Рейтинг", "Последнее участие", "Город"])
 
-    # --- НОВАЯ ЛОГИКА: Фильтрация по дате ---
-    # Преобразуем столбец 'Последнее участие' в datetime, игнорируя ошибки
-    # Предполагаем, что формат даты dd.mm.yyyy
+    # --- ФИЛЬТРАЦИЯ: игроки за последние 3 месяца ---
     df['Последнее участие'] = pd.to_datetime(df['Последнее участие'], format='%d.%m.%Y', errors='coerce', dayfirst=True)
 
-    # Получаем текущую дату
-    today = datetime.today()
-    # Вычисляем дату 6 месяцев назад
-    six_months_ago = today - timedelta(days=6*30) # Приблизительно 6 месяцев
-
-    # Фильтруем DataFrame: оставляем строки, где дата >= six_months_ago и дата известна (не NaT)
-    df_filtered = df[df['Последнее участие'].notna() & (df['Последнее участие'] >= six_months_ago)]
-
-    # Пересчитываем места
-    df_filtered = df_filtered.reset_index(drop=True)
+    three_months_ago = datetime.now() - timedelta(days=90)  # ~3 месяца
+    df_filtered = df[df['Последнее участие'].notna() & (df['Последнее участие'] >= three_months_ago)]
+    df_filtered = df_filtered.sort_values(by='Последнее участие', ascending=False).reset_index(drop=True)
     df_filtered['Место'] = df_filtered.index + 1
-
-    # Преобразуем дату обратно в строку для отображения
     df_filtered['Последнее участие'] = df_filtered['Последнее участие'].dt.strftime('%d.%m.%Y')
-    # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+    # ---
 
-    # Используем отфильтрованный DataFrame для дальнейших действий
     df = df_filtered
 
+    # Определяем последнюю дату участия
+    latest_date_str = "-"
     if not df.empty:
         latest_date = pd.to_datetime(df['Последнее участие'], format='%d.%m.%Y', errors='coerce').max()
-        latest_date_str = latest_date.strftime("%d.%m.%Y") if not pd.isna(latest_date) else "-"
-    else:
-        latest_date_str = "-" # Или другая строка, если нет данных
+        if not pd.isna(latest_date):
+            latest_date_str = latest_date.strftime('%d.%m.%Y')
+
     log(f"📅 Последняя дата турнира (после фильтрации): {latest_date_str}")
 
-    # Генерация HTML (оригинальный стиль с фильтрами и кнопками)
+    # Собираем уникальные первые буквы фамилий
     used_letters = set()
     for _, row in df.iterrows():
-        name = row['Имя']
-        if name:
-            surname = name.split(" ")[0]
-            if surname:
-                first_letter = surname[0].upper()
-                if first_letter.isalpha():
-                    used_letters.add(first_letter)
+        surname = row['Имя'].strip().split()[0] if row['Имя'].strip() else ""
+        if surname and surname[0].isalpha():
+            used_letters.add(surname[0].upper())
+
     letters = [chr(c) for c in range(ord("А"), ord("Я") + 1)]
-    filtered_letters = [l for l in letters if l in used_letters]
+    filtered_letters = sorted([l for l in letters if l in used_letters])
     half = len(filtered_letters) // 2
     first_row = filtered_letters[:half]
     second_row = filtered_letters[half:]
 
-    # --- ИЗМЕНЕНИЕ ЗАГОЛОВКА ---
+    # Генерация HTML
     html_content = f"""
     <!DOCTYPE html>
     <html lang="ru">
@@ -217,8 +221,7 @@ def run_parser():
     </head>
     <body>
         <h1><a href="https://пингвинклуб.рф/reitingi.html" target="_blank">Рейтинг PingWinClub</a></h1>
-        <!-- Изменённый заголовок -->
-        <h3>Клубный рейтинг за прошедшие 6 месяцев</h3>
+        <h3>Клубный рейтинг за прошедшие 3 месяца</h3>
         <div class="filters">
             <h4>Алфавитный фильтр:</h4>
             <div class="filter-row">
@@ -246,12 +249,16 @@ def run_parser():
             </thead>
             <tbody>
     """
-    for _, row in df.iterrows(): # Используем отфильтрованный df
-        rating = row['Рейтинг']
+
+    for _, row in df.iterrows():
         delta = row['Δ Рейтинг']
-        rating_style = 'style="color: darkgreen; font-weight: bold;"' if '+' in delta and delta not in ["+0", "+-0"] else ''
-        if '-' in delta and delta not in ["-0", "+-0"]:
+        rating = row['Рейтинг']
+        rating_style = ''
+        if '+' in delta and delta not in ["+0", "+-0"]:
+            rating_style = 'style="color: darkgreen; font-weight: bold;"'
+        elif '-' in delta and delta not in ["-0", "+-0"]:
             rating_style = 'style="color: red; font-weight: bold;"'
+
         html_content += f"""
         <tr>
             <td class="centered">{row['Место']}</td>
@@ -262,6 +269,7 @@ def run_parser():
             <td>{row['Город']}</td>
         </tr>
         """
+
     html_content += """
             </tbody>
         </table>
@@ -270,10 +278,10 @@ def run_parser():
                 const alffilters = document.querySelectorAll(".alffilter");
                 const datefilters = document.querySelectorAll(".filter-btn");
                 const rows = document.querySelectorAll("#myTable tbody tr");
-                // Фильтр по фамилии
+
                 alffilters.forEach(filter => {
                     filter.addEventListener("click", function () {
-                        const letter = this.getAttribute("data-letter");
+                        const letter = this.getAttribute("data-letter").toLowerCase();
                         rows.forEach(row => {
                             const nameCell = row.querySelector("td:nth-child(2)");
                             if (!nameCell) return;
@@ -287,7 +295,7 @@ def run_parser():
                         });
                     });
                 });
-                // Фильтр по дате
+
                 datefilters.forEach(filter => {
                     filter.addEventListener("click", function () {
                         const targetDate = this.getAttribute("data-date");
@@ -308,13 +316,14 @@ def run_parser():
     </body>
     </html>
     """
-    local_html_path = "rating_full.html"
+
+    # Записываем HTML во временный файл
     try:
-        with open(local_html_path, "w", encoding="utf-8") as f:
+        with open(html_file_path, "w", encoding="utf-8") as f:
             f.write(html_content)
-        log(f"✅ HTML создан локально: {local_html_path}")
+        log(f"✅ HTML временно сохранён: {html_file_path}")
     except Exception as e:
-        log(f"❌ Ошибка записи локального HTML: {e}")
+        log(f"❌ Ошибка записи HTML: {e}")
         return
 
     # Загрузка на FTP
@@ -325,11 +334,20 @@ def run_parser():
             log("✅ Успешно подключились к FTP")
             ftp.cwd(ftp_path)
             log(f"📁 Перешли в папку: {ftp_path}")
-            with open(local_html_path, "rb") as file:
-                ftp.storbinary(f"STOR rating_full.html", file)
-        log(f"✅ Файл загружен на FTP")
+            with open(html_file_path, "rb") as file:
+                ftp.storbinary("STOR rating_full.html", file)
+        log("✅ Файл успешно загружен на FTP")
     except Exception as e:
         log(f"❌ Ошибка FTP: {e}")
+        return
+
+    # Удаление временного файла сразу после отправки
+    try:
+        os.remove(html_file_path)
+        log("🗑️ Временный HTML-файл удалён")
+    except Exception as e:
+        log(f"⚠️ Не удалось удалить временный файл: {e}")
+
 # ========================
 # Flask маршруты
 # ========================
@@ -341,9 +359,11 @@ def index():
 def run():
     log("🔔 Запрос на запуск парсинга")
     run_parser()
-    return "✅ Парсинг выполнен"
+    return "✅ Парсинг выполнен и файл загружен на FTP"
+
 # ========================
 # Точка входа
 # ========================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
