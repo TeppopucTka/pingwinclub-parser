@@ -1,0 +1,7 @@
+services:
+  pingwinclub-parser:
+    type: background
+    runtime: python
+    cron: "*/10 * * * *"  # каждые 10 минут
+    buildCommand: pip install -r requirements.txt
+    startCommand: python parser.py
